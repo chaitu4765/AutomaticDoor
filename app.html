@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Automatic Door IoT System</title>
+    <script src="https://cdn.socket.io/4.6.0/socket.io.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; background: #0f172a; color: #e2e8f0; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        h1 { text-align: center; margin-bottom: 30px; color: #38bdf8; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+        .card { background: #1e293b; border-radius: 8px; padding: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        .card h2 { color: #38bdf8; margin-bottom: 15px; font-size: 1.2rem; }
+        .status { display: inline-block; padding: 8px 16px; border-radius: 4px; font-weight: bold; }
+        .status.open { background: #22c55e; color: white; }
+        .status.closed { background: #ef4444; color: white; }
+        .sensor { font-size: 2rem; font-weight: bold; color: #38bdf8; margin: 10px 0; }
+        button { background: #38bdf8; border: none; padding: 10px 20px; border-radius: 4px; color: white; cursor: pointer; margin: 5px; font-size: 1rem; }
+        button:hover { background: #0ea5e9; }
+        button:disabled { background: #475569; cursor: not-allowed; }
+        .alert { background: #dc2626; padding: 10px; border-radius: 4px; margin: 5px 0; font-size: 0.9rem; }
+        .connection { text-align: center; padding: 10px; border-radius: 4px; margin-bottom: 20px; }
+        .connection.connected { background: #166534; }
+        .connection.disconnected { background: #991b1b; }
+        .log { background: #334155; padding: 8px; border-radius: 4px; margin: 5px 0; font-size: 0.85rem; }
+        .info { color: #94a3b8; font-size: 0.9rem; margin: 5px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚪 Automatic Door IoT System</h1>
+        <div id="connectionStatus" class="connection disconnected">Connecting to server...</div>
+        <div class="grid">
+            <div class="card">
+                <h2>🚪 Door Status</h2>
+                <div><span id="doorStatus" class="status closed">CLOSED</span></div>
+                <div class="info" id="lastUpdated">Last updated: Never</div>
+            </div>
+            <div class="card">
+                <h2>📏 Sensor Distance</h2>
+                <div class="sensor" id="distance">---</div>
+                <div class="info" id="detection">Waiting for data...</div>
+            </div>
+            <div class="card">
+                <h2>🎮 Manual Controls</h2>
+                <button id="openBtn" onclick="controlDoor('open')">Open Door</button>
+                <button id="closeBtn" onclick="controlDoor('close')">Close Door</button>
+                <div class="info" style="margin-top: 10px;">Control the door manually</div>
+            </div>
+            <div class="card">
+                <h2>🔔 Alerts</h2>
+                <div id="alerts"><div class="info">No alerts</div></div>
+            </div>
+            <div class="card">
+                <h2>📊 System Stats</h2>
+                <div class="info" id="stats">Loading...</div>
+            </div>
+            <div class="card">
+                <h2>📝 Recent Logs</h2>
+                <div id="logs"><div class="info">No logs</div></div>
+            </div>
+        </div>
+    </div>
+    <script>
+const API_URL = 'https://automaticdoor-production.up.railway.app';
+const socket = io(API_URL);
+let isConnected = false;
+
+socket.on('connect', () => {
+    isConnected = true;
+    document.getElementById('connectionStatus').textContent = '✅ Connected to server';
+    document.getElementById('connectionStatus').className = 'connection connected';
+    fetchInitialData();
+});
+
+socket.on('disconnect', () => {
+    isConnected = false;
+    document.getElementById('connectionStatus').textContent = '❌ Disconnected from server';
+    document.getElementById('connectionStatus').className = 'connection disconnected';
+});
+
+socket.on('door:status-update', (data) => {
+    updateDoorStatus(data);
+});
+
+socket.on('sensor:distance-update', (data) => {
+    updateSensorData(data);
+});
+
+socket.on('alert:new', (alert) => {
+    addAlert(alert);
+});
+
+function updateDoorStatus(data) {
+    const statusEl = document.getElementById('doorStatus');
+    statusEl.textContent = data.isOpen ? 'OPEN' : 'CLOSED';
+    statusEl.className = data.isOpen ? 'status open' : 'status closed';
+    document.getElementById('lastUpdated').textContent = `Last updated: ${new Date(data.lastUpdated).toLocaleTimeString()}`;
+}
+
+function updateSensorData(data) {
+    document.getElementById('distance').textContent = data.distance + ' cm';
+    let detectionText = 'Clear';
+    if (data.distance < 100) detectionText = '🚶 Human Detected';
+    else if (data.distance < 200) detectionText = '⚠️ Object Nearby';
+    document.getElementById('detection').textContent = detectionText;
+}
+
+function controlDoor(action) {
+    if (!isConnected) {
+        alert('Not connected to server!');
+        return;
+    }
+    fetch(`${API_URL}/api/door/control`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action })
+    })
+    .then(res => res.json())
+    .then(data => console.log(data))
+    .catch(err => console.error('Error:', err));
+}
+
+function addAlert(alert) {
+    const alertsDiv = document.getElementById('alerts');
+    if (alertsDiv.querySelector('.info')) alertsDiv.innerHTML = '';
+    const alertEl = document.createElement('div');
+    alertEl.className = 'alert';
+    alertEl.textContent = `${alert.type}: ${alert.message}`;
+    alertsDiv.insertBefore(alertEl, alertsDiv.firstChild);
+    if (alertsDiv.children.length > 5) alertsDiv.lastChild.remove();
+}
+
+function fetchInitialData() {
+    fetch(`${API_URL}/api/door/status`)
+        .then(res => res.json())
+        .then(data => updateDoorStatus(data))
+        .catch(err => console.error('Error:', err));
+    
+    fetch(`${API_URL}/api/stats`)
+        .then(res => res.json())
+        .then(data => {
+            document.getElementById('stats').innerHTML = `
+                <div>Total Logs: ${data.totalLogs}</div>
+                <div>Total Alerts: ${data.totalAlerts}</div>
+                <div>Current Distance: ${data.currentDistance} cm</div>
+                <div>Status: ${data.doorStatus}</div>
+            `;
+        })
+        .catch(err => console.error('Error:', err));
+    
+    fetch(`${API_URL}/api/logs?limit=5`)
+        .then(res => res.json())
+        .then(data => {
+            const logsDiv = document.getElementById('logs');
+            if (data.length === 0) return;
+            logsDiv.innerHTML = '';
+            data.forEach(log => {
+                const logEl = document.createElement('div');
+                logEl.className = 'log';
+                logEl.textContent = `${log.action.toUpperCase()} - ${log.trigger_type} (${log.sensor_distance}cm)`;
+                logsDiv.appendChild(logEl);
+            });
+        })
+        .catch(err => console.error('Error:', err));
+}
+    </script>
+</body>
+</html>
